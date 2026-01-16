@@ -1,5 +1,8 @@
 package musicbattle.client.ui;
 
+import musicbattle.common.protocol.Message;
+import musicbattle.common.protocol.MessageType;
+
 import javax.swing.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -26,12 +29,14 @@ public class ConnectPanel extends JPanel {
 
     private void connect() {
         try {
-            Socket socket = new Socket("localhost", 5050); //
+            Socket socket = new Socket("localhost", 5050);
 
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            out.println("CONNECT:" + nameField.getText()); //
+            String connectMsg = Message.serialize(MessageType.CONNECT, nameField.getText());
+            out.println(connectMsg);
+
             statusLabel.setText("⏳ Подключение...");
             connectButton.setEnabled(false);
 
@@ -45,27 +50,35 @@ public class ConnectPanel extends JPanel {
 
     private void listenServer() {
         try {
-            String message;
-            while ((message = in.readLine()) != null) { //
+            String rawMessage;
+            while ((rawMessage = in.readLine()) != null) {
 
-                final String serverMessage = message;
-                System.out.println("From server: " + serverMessage);
+                Message message = Message.deserialize(rawMessage);
+                if (message == null) {
+                    System.err.println("Ошибка парсинга сообщения: " + rawMessage);
+                    continue;
+                }
 
-                if (serverMessage.equals("WAIT")) {
+                final MessageType messageType = message.getType();
+                final String payload = message.getPayload();
+
+                System.out.println("From server: " + messageType + " | payload: " + payload);
+
+                if (messageType == MessageType.WAIT) {
                     SwingUtilities.invokeLater(() ->
                             statusLabel.setText("⏳ Ожидание других игроков...")
                     );
                 }
 
-                else if (serverMessage.equals("START_GAME")) {
+                else if (messageType == MessageType.START_GAME) {
                     SwingUtilities.invokeLater(() -> {
                         statusLabel.setText("🎵 Игра началась!");
                         MainFrame.getInstance().showGamePanel();
                     });
                 }
 
-                else if (serverMessage.startsWith("RESULT")) {
-                    boolean success = serverMessage.contains("SUCCESS");
+                else if (messageType == MessageType.RESULT) {
+                    boolean success = payload.contains("SUCCESS");
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(
                                     this,
@@ -76,21 +89,16 @@ public class ConnectPanel extends JPanel {
                     );
                 }
 
-                else if (serverMessage.startsWith("SCORE_UPDATE")) {
-                    String[] parts = serverMessage.split(":", 2);
-                    if (parts.length == 2 && !parts[1].isEmpty()) {
-                        SwingUtilities.invokeLater(() ->
-                                GamePanel.updateScore(parts[1])
-                        );
-                    }
+                else if (messageType == MessageType.SCORE_UPDATE) {
+                    SwingUtilities.invokeLater(() ->
+                            GamePanel.updateScore(payload)
+                    );
                 }
 
-                // ФИНАЛЬНОЕ ОКНО
-                else if (serverMessage.startsWith("GAME_OVER")) {
-
-                    String[] parts = serverMessage.split(":", 3);
-                    String winner = parts[1];
-                    String rating = parts.length == 3 ? parts[2] : "";
+                else if (messageType == MessageType.GAME_OVER) {
+                    String[] parts = payload.split(":", 2);
+                    String winner = parts.length > 0 ? parts[0] : "неизвестно";
+                    String rating = parts.length > 1 ? parts[1] : "";
 
                     SwingUtilities.invokeLater(() -> {
                         JOptionPane.showMessageDialog(

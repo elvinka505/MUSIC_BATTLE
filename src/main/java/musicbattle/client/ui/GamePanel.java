@@ -24,3 +24,4 @@ public class GamePanel extends JPanel {
         scoreLabel.setText("Очки: " + text);
     }
 }
+
